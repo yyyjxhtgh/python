@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+# Data file created by the Day 7 to-do app
+tasks.json
