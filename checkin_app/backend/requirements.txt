@@ -1,0 +1,9 @@
+fastapi==0.165.0
+uvicorn[standard]==0.54.0
+SQLAlchemy==2.1.9
+pydantic==2.13.5
+python-multipart==0.0.32
+twilio==9.13.0
+# tests
+pytest==9.1.1
+httpx==0.28.1

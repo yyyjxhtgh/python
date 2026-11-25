@@ -1,0 +1,11 @@
+{
+  "expo": {
+    "name": "Daily Check-in",
+    "slug": "daily-checkin",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": { "bundleIdentifier": "com.example.dailycheckin" },
+    "android": { "package": "com.example.dailycheckin" }
+  }
+}
