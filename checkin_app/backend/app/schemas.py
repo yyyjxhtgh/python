@@ -83,6 +83,13 @@ class UserOut(BaseModel):
     last_status: str
     last_status_at: UTC | None
     next_checkin_at: UTC | None
+    billing_id: str
+    subscription_required: bool
+    subscription_active: bool
+    subscription_expires_at: UTC | None
+    subscription_will_renew: bool
+    # False when paused or when a subscription is required and missing.
+    calls_enabled: bool
 
 
 class RegisterOut(BaseModel):

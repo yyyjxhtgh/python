@@ -45,6 +45,7 @@ export const api = {
   deleteContact: (id) => request('DELETE', `/me/contacts/${id}`),
   checkins: (limit = 30) => request('GET', `/me/checkins?limit=${limit}`),
   checkIn: (status, note) => request('POST', '/me/checkins', { status, note }),
+  syncSubscription: () => request('POST', '/me/subscription/sync'),
 };
 
 export function deviceTimezone() {

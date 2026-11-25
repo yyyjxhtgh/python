@@ -4,7 +4,7 @@ import { Alert, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { api, formatWhen } from '../api';
 import { Button, Card, colors, ESCALATION, STATUS, styles } from '../ui';
 
-export default function HomeScreen({ user, onUserChange }) {
+export default function HomeScreen({ user, onUserChange, onOpenPlan }) {
   const [history, setHistory] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -58,9 +58,21 @@ export default function HomeScreen({ user, onUserChange }) {
         <Text style={{ fontSize: 30, fontWeight: '800', color: status.color }}>{status.label}</Text>
         {user.last_status_at && <Text style={styles.muted}>Updated {formatWhen(user.last_status_at)}</Text>}
         <Text style={[styles.body, { marginTop: 10 }]}>
-          {user.active ? `Next call: ${formatWhen(user.next_checkin_at)}` : 'Calls are paused (see Schedule).'}
+          {!user.active
+            ? 'Calls are paused (see Schedule).'
+            : user.calls_enabled
+              ? `Next call: ${formatWhen(user.next_checkin_at)}`
+              : 'Scheduled calls are off.'}
         </Text>
       </Card>
+
+      {user.active && !user.calls_enabled && (
+        <Card style={{ borderColor: colors.help, borderWidth: 2 }}>
+          <Text style={[styles.body, { fontWeight: '700' }]}>Subscribe to turn on daily check-in calls</Text>
+          <Text style={[styles.muted, { marginBottom: 6 }]}>The "I need help" button below still works for free.</Text>
+          <Button title="See plans" onPress={onOpenPlan} />
+        </Card>
+      )}
 
       <Button big title="I'm OK" color={colors.ok} onPress={() => send('ok')} disabled={busy} />
       <Button big title="I need help" color={colors.help} onPress={confirmHelp} disabled={busy} />

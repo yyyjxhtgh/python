@@ -4,6 +4,6 @@ SQLAlchemy==2.1.9
 pydantic==2.13.5
 python-multipart==0.0.32
 twilio==9.13.0
+httpx==0.28.1
 # tests
 pytest==9.1.1
-httpx==0.28.1

@@ -53,6 +53,15 @@ class User(Base):
     last_status: Mapped[str] = mapped_column(String(20), default=UNKNOWN)
     last_status_at: Mapped[datetime | None] = mapped_column(default=None)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # In-app purchase. billing_id is the customer id the app gives RevenueCat; it is random
+    # (not the user id) so a deleted account's purchases can never pass to a new account.
+    billing_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    subscription_expires_at: Mapped[datetime | None] = mapped_column(default=None)
+    subscription_product: Mapped[str | None] = mapped_column(String(100), default=None)
+    subscription_will_renew: Mapped[bool] = mapped_column(default=False)
+
+    def has_subscription(self, now: datetime) -> bool:
+        return self.subscription_expires_at is not None and self.subscription_expires_at > now
 
     contacts: Mapped[list["Contact"]] = relationship(
         back_populates="user", cascade="all, delete-orphan", order_by="Contact.priority"

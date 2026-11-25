@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from . import voice
+from . import billing, voice
 from .config import Settings
 from .db import make_session_factory
 from .deps import current_user, get_service, get_session
@@ -29,13 +29,14 @@ from .schemas import (
     UserOut,
     UserUpdate,
 )
-from .service import CheckInService, new_token, next_checkin_at
+from .service import CheckInService, new_token, next_checkin_at, utcnow
 from .telephony import ConsoleTelephony, Telephony, TwilioTelephony
 
 log = logging.getLogger(__name__)
 
 
-def user_out(user: User) -> UserOut:
+def user_out(user: User, require_subscription: bool) -> UserOut:
+    now = utcnow()
     return UserOut(
         id=user.id,
         name=user.name,
@@ -48,6 +49,12 @@ def user_out(user: User) -> UserOut:
         last_status=user.last_status,
         last_status_at=user.last_status_at,
         next_checkin_at=next_checkin_at(user),
+        billing_id=user.billing_id,
+        subscription_required=require_subscription,
+        subscription_active=user.has_subscription(now),
+        subscription_expires_at=user.subscription_expires_at if user.has_subscription(now) else None,
+        subscription_will_renew=user.subscription_will_renew,
+        calls_enabled=user.active and (not require_subscription or user.has_subscription(now)),
     )
 
 
@@ -55,6 +62,7 @@ def create_app(
     settings: Settings | None = None,
     telephony: Telephony | None = None,
     session_factory: sessionmaker | None = None,
+    revenuecat: billing.RevenueCatClient | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
     # Show this app's log lines (including the fake calls/texts) next to uvicorn's.
@@ -73,7 +81,13 @@ def create_app(
         else:
             log.warning("Twilio is not configured: calls and SMS are only logged")
             telephony = ConsoleTelephony()
-    service = CheckInService(session_factory, telephony, settings.public_base_url)
+    service = CheckInService(
+        session_factory, telephony, settings.public_base_url, require_subscription=settings.require_subscription
+    )
+    if revenuecat is None and settings.revenuecat_api_key:
+        revenuecat = billing.RevenueCatClient(settings.revenuecat_api_key, settings.revenuecat_entitlement)
+    if settings.require_subscription and revenuecat is None:
+        log.warning("REQUIRE_SUBSCRIPTION is on but REVENUECAT_API_KEY is not set: purchases can't be confirmed")
 
     async def scheduler_loop() -> None:
         while True:
@@ -99,6 +113,10 @@ def create_app(
     app.state.telephony = telephony
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
     app.include_router(voice.router)
+    app.include_router(billing.make_router(settings, revenuecat))
+
+    def out(user: User) -> UserOut:
+        return user_out(user, settings.require_subscription)
 
     @app.get("/health")
     def health():
@@ -117,15 +135,16 @@ def create_app(
             max_attempts=body.max_attempts,
             retry_minutes=body.retry_minutes,
             api_token=new_token(),
+            billing_id=new_token(),
         )
         user.checkin_times = body.checkin_times
         s.add(user)
         s.commit()
-        return RegisterOut(user=user_out(user), api_token=user.api_token)
+        return RegisterOut(user=out(user), api_token=user.api_token)
 
     @app.get("/me", response_model=UserOut)
     def get_me(user: User = Depends(current_user)):
-        return user_out(user)
+        return out(user)
 
     @app.patch("/me", response_model=UserOut)
     def update_me(body: UserUpdate, user: User = Depends(current_user), s: Session = Depends(get_session)):
@@ -134,13 +153,27 @@ def create_app(
                 continue
             setattr(user, field, value)
         s.commit()
-        return user_out(user)
+        return out(user)
 
     @app.delete("/me", status_code=204)
     def delete_me(user: User = Depends(current_user), s: Session = Depends(get_session)):
         s.delete(user)
         s.commit()
         return Response(status_code=204)
+
+    # ------------------------------------------------------------ subscription
+
+    @app.post("/me/subscription/sync", response_model=UserOut)
+    def sync_subscription(user: User = Depends(current_user), s: Session = Depends(get_session)):
+        """Called by the app after a purchase or restore: re-checks the purchase with RevenueCat."""
+        if revenuecat is not None:
+            try:
+                billing.apply_entitlement(user, revenuecat.fetch(user.billing_id))
+            except Exception:
+                log.exception("Could not check the subscription with RevenueCat")
+                raise HTTPException(status_code=502, detail="Could not confirm the purchase, please try again")
+            s.commit()
+        return out(user)
 
     # ------------------------------------------------------------ contacts
 

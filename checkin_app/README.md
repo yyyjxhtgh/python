@@ -30,6 +30,7 @@ In the mobile app the user can also:
 - tap **I need help** to alert contacts straight away.
 - manage contacts (family, friend, caregiver, doctor, hospital, neighbour…), call times,
   number of retries, and pause calls.
+- subscribe in the **Plan** tab (see *In-app purchase* below).
 
 ## Project layout
 
@@ -48,7 +49,7 @@ service does it.
 cd checkin_app/backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python -m pytest            # 13 tests covering the whole call/alert flow
+python -m pytest            # 28 tests: call/alert flow and purchases
 cp .env.example .env        # optional: fill in Twilio details
 set -a; source .env; set +a
 uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000
@@ -84,6 +85,75 @@ Scan the QR code with the **Expo Go** app on your phone. On a real phone, `local
 won't work: use your computer's LAN IP (e.g. `http://192.168.1.10:8000`) or the public
 URL. To publish to the App Store and Google Play, use `eas build`.
 
+## In-app purchase (subscription)
+
+Scheduled calls cost money (phone minutes and texts), so they can be sold as a
+subscription bought inside the app. The **I need help** button always stays free.
+
+```
+ Phone app ──buy──► App Store / Google Play ──► RevenueCat ──webhook──► this server
+     │                                                                    │
+     └── after buying: POST /me/subscription/sync ── server asks RevenueCat ┘
+                                                     "is this customer paid up?"
+```
+
+- The store payment is handled by **RevenueCat** (free up to $2,500/month of revenue),
+  which works with both Apple and Google.
+- The server never trusts the phone. It confirms every purchase with RevenueCat's API,
+  and the RevenueCat webhook keeps it up to date on renewals, cancellations, refunds
+  and expiry.
+- Each user gets a random `billing_id` as their RevenueCat customer id, so purchases
+  can't leak to another account.
+- With `REQUIRE_SUBSCRIPTION=false` (the default), everything is free, which is useful
+  while testing.
+
+Apple and Google require their own payment system for subscriptions sold inside an
+app. They keep 15% (small developers / after the first year) to 30% of the price.
+
+### Setup checklist
+
+1. **Apple** (App Store Connect, needs the $99/year developer account):
+   create the app, then under *Subscriptions* create a group with products such as
+   `checkin_monthly` and `checkin_yearly`. Add prices and an optional free trial.
+   Accept the Paid Apps agreement and fill in banking and tax details.
+2. **Google** (Play Console, $25 one-time fee): create the app and add the same
+   subscription products under *Monetize → Subscriptions*. Google requires an app
+   build uploaded to a testing track before products can be bought.
+3. **RevenueCat** (revenuecat.com):
+   - Add the iOS and Android apps. Link them with an App Store Connect API key and a
+     Google Play service account.
+   - Create an **entitlement** called `premium` and attach both products to it.
+   - Create an **offering** (mark it *current*) with monthly and yearly packages.
+     The app shows whatever this offering contains.
+   - Under *Integrations → Webhooks*, add the URL `https://YOUR-SERVER/billing/revenuecat`
+     and set an *Authorization header* value, for example `Bearer <long random string>`.
+4. **Server `.env`:** `REQUIRE_SUBSCRIPTION=true`, `REVENUECAT_API_KEY=sk_...` (secret key),
+   and `REVENUECAT_WEBHOOK_AUTH` set to the exact header value from step 3.
+5. **App `mobile/.env`:** `EXPO_PUBLIC_RC_IOS_KEY`, `EXPO_PUBLIC_RC_ANDROID_KEY` (public
+   SDK keys), plus your Terms of Use and Privacy Policy links. Apple rejects
+   subscription apps without them.
+
+### Testing purchases
+
+Store purchases **don't work in Expo Go**. Make a development build instead:
+
+```bash
+cd checkin_app/mobile
+npm install -g eas-cli && eas login
+npm run build:dev            # builds an installable test app in the cloud
+npm start                    # then open the installed dev app
+```
+
+- **iPhone:** create a *Sandbox tester* in App Store Connect (Users and Access →
+  Sandbox) and sign in with it when buying. Sandbox subscriptions renew quickly
+  (a month lasts about 5 minutes), so you can watch renewals and expiry.
+- **Android:** add your Google account as a *license tester* in Play Console. Test
+  purchases aren't charged.
+- Check the result in the **Plan** tab, and in the RevenueCat dashboard under *Customers*.
+
+If you ran an earlier version, delete `backend/checkin.db` once. The subscription
+fields are new columns, and the simple SQLite setup doesn't upgrade old files.
+
 ## API summary
 
 | Method | Path | Purpose |
@@ -94,7 +164,9 @@ URL. To publish to the App Store and Google Play, use `eas build`.
 | PATCH / DELETE | `/me/contacts/{id}` | Edit or remove a contact |
 | GET | `/me/checkins` | History, including who was alerted and what happened |
 | POST | `/me/checkins` | `{"status": "ok"}` or `{"status": "needs_help"}` from the app |
+| POST | `/me/subscription/sync` | Re-check the user's purchase with RevenueCat (the app calls this after buying) |
 | POST | `/voice/...` | Twilio webhooks (call scripts and call results) |
+| POST | `/billing/revenuecat` | RevenueCat webhook (purchases, renewals, cancellations) |
 
 ## Important: safety and before going live
 

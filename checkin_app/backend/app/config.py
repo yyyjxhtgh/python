@@ -23,6 +23,11 @@ class Settings:
     validate_twilio_signature: bool = True
     run_scheduler: bool = True
     scheduler_interval_seconds: int = 30
+    # In-app purchases (RevenueCat). When required, scheduled calls only run for subscribers.
+    require_subscription: bool = False
+    revenuecat_api_key: str | None = None  # secret API key, used to confirm purchases
+    revenuecat_webhook_auth: str | None = None  # the Authorization value set on the RevenueCat webhook
+    revenuecat_entitlement: str = "premium"
 
     @property
     def twilio_enabled(self) -> bool:
@@ -39,4 +44,8 @@ class Settings:
             validate_twilio_signature=_env_bool("VALIDATE_TWILIO_SIGNATURE", True),
             run_scheduler=_env_bool("RUN_SCHEDULER", True),
             scheduler_interval_seconds=int(os.getenv("SCHEDULER_INTERVAL_SECONDS", "30")),
+            require_subscription=_env_bool("REQUIRE_SUBSCRIPTION", False),
+            revenuecat_api_key=os.getenv("REVENUECAT_API_KEY") or None,
+            revenuecat_webhook_auth=os.getenv("REVENUECAT_WEBHOOK_AUTH") or None,
+            revenuecat_entitlement=os.getenv("REVENUECAT_ENTITLEMENT", cls.revenuecat_entitlement),
         )

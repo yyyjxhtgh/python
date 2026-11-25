@@ -85,7 +85,14 @@ def local_time_text(user: User, when: datetime) -> str:
 
 
 class CheckInService:
-    def __init__(self, session_factory: sessionmaker, telephony: Telephony, base_url: str):
+    def __init__(
+        self,
+        session_factory: sessionmaker,
+        telephony: Telephony,
+        base_url: str,
+        require_subscription: bool = False,
+    ):
+        self.require_subscription = require_subscription
         self.session_factory = session_factory
         self.telephony = telephony
         self.base_url = base_url.rstrip("/")
@@ -108,6 +115,8 @@ class CheckInService:
 
     def _create_due_checkins(self, s: Session, now: datetime) -> None:
         for user in s.scalars(select(User).where(User.active.is_(True))):
+            if self.require_subscription and not user.has_subscription(now):
+                continue
             tz = ZoneInfo(user.timezone)
             today = now.replace(tzinfo=timezone.utc).astimezone(tz).date()
             for day in (today - timedelta(days=1), today):  # yesterday covers slots just before midnight
