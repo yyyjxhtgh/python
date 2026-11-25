@@ -57,6 +57,13 @@ def create_app(
     session_factory: sessionmaker | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
+    # Show this app's log lines (including the fake calls/texts) next to uvicorn's.
+    app_log = logging.getLogger("app")
+    if not app_log.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(levelname)s:     %(message)s"))
+        app_log.addHandler(handler)
+        app_log.setLevel(logging.INFO)
     session_factory = session_factory or make_session_factory(settings.database_url)
     if telephony is None:
         if settings.twilio_enabled:
